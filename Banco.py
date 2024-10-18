@@ -1,99 +1,145 @@
-import datetime
+from abc import ABC, abstractmethod
+from datetime import datetime
 
 usuarios = []
 contas = []
 numero_conta_sequencial = 1
 
+class Usuario:
+    def __init__(self, nome, cpf, data_nascimento, endereco):
+        self.nome = nome
+        self.cpf = cpf.replace(".", "").replace("-", "").replace(" ", "")
+        self.data_nascimento = data_nascimento
+        self.endereco = endereco
+        self.contas = []
+
+    def adicionar_conta(self, conta):
+        self.contas.append(conta)
+
 def cadastrar_usuario(nome, cpf, data_nascimento, endereco):
-    cpf = cpf.replace(".", "").replace("-", "").replace(" ", "")
-    
-    # Verifica se o CPF já está cadastrado
     for usuario in usuarios:
-        if usuario["cpf"] == cpf:
+        if usuario.cpf == cpf:
             print("Erro: Já existe um usuário com este CPF.")
             return
-    
-    usuario = {
-        "nome": nome,
-        "cpf": cpf,
-        "data_nascimento": data_nascimento,
-        "endereco": endereco
-    }
-    usuarios.append(usuario)
+    novo_usuario = Usuario(nome, cpf, data_nascimento, endereco)
+    usuarios.append(novo_usuario)
     print(f"Usuário {nome} cadastrado com sucesso!")
+
+class Conta:
+    def __init__(self, numero, usuario):
+        self._saldo = 0
+        self.numero = numero
+        self.agencia = "0001"
+        self.usuario = usuario
+        self.historico = Historico()
+    
+    @classmethod
+    def nova_conta(cls, usuario, numero):
+        return cls(numero, usuario)
+
+    def depositar(self, valor):
+        if valor > 0:
+            self._saldo += valor
+            print(f"\nDepósito de R$ {valor:.2f} realizado com sucesso!")
+            self.historico.adicionar_transacao(Deposito(valor))
+        else:
+            print("\nErro: Valor inválido.")
+            return False
+        return True
+
+    def sacar(self, valor):
+        if valor > self._saldo:
+            print("\nErro: Saldo insuficiente.")
+        elif valor > 0:
+            self._saldo -= valor
+            print(f"\nSaque de R$ {valor:.2f} realizado com sucesso!")
+            self.historico.adicionar_transacao(Saque(valor))
+            return True
+        else:
+            print("\nErro: Valor inválido.")
+        return False
+
+    @property
+    def saldo(self):
+        return self._saldo
+
+    def exibir_extrato(self):
+        print("\n========== EXTRATO ==========")
+        if not self.historico.transacoes:
+            print("Nenhuma movimentação registrada.")
+        else:
+            for transacao in self.historico.transacoes:
+                print(transacao)
+        print(f"Saldo atual: R$ {self.saldo:.2f}")
+        print("==============================")
+
+class ContaCorrente(Conta):
+    def __init__(self, numero, usuario, limite=500, limite_saques=3):
+        super().__init__(numero, usuario)
+        self.limite = limite
+        self.limite_saques = limite_saques
+
+    def sacar(self, valor):
+        numero_saques = len([t for t in self.historico.transacoes if isinstance(t, Saque)])
+        if valor > self.limite:
+            print("\nErro: O valor excede o limite de saque.")
+        elif numero_saques >= self.limite_saques:
+            print("\nErro: Limite de saques diários atingido.")
+        else:
+            return super().sacar(valor)
+        return False
+
+class Historico:
+    def __init__(self):
+        self._transacoes = []
+
+    @property
+    def transacoes(self):
+        return self._transacoes
+
+    def adicionar_transacao(self, transacao):
+        timestamp = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
+        self._transacoes.append(f"{timestamp} - {transacao}")
+
+class Transacao(ABC):
+    @abstractmethod
+    def __str__(self):
+        pass
+
+class Saque(Transacao):
+    def __init__(self, valor):
+        self.valor = valor
+
+    def __str__(self):
+        return f"Saque de R$ {self.valor:.2f}"
+
+class Deposito(Transacao):
+    def __init__(self, valor):
+        self.valor = valor
+
+    def __str__(self):
+        return f"Depósito de R$ {self.valor:.2f}"
 
 def criar_conta_corrente(cpf):
     global numero_conta_sequencial
-    usuario = None
+    usuario = next((u for u in usuarios if u.cpf == cpf), None)
     
-    for u in usuarios:
-        if u["cpf"] == cpf:
-            usuario = u
-            break
-
     if not usuario:
         print("Erro: Usuário não encontrado.")
         return
 
-    conta = {
-        "agencia": "0001",
-        "numero_conta": numero_conta_sequencial,
-        "usuario": usuario
-    }
-    contas.append(conta)
+    nova_conta = ContaCorrente(numero_conta_sequencial, usuario)
+    usuario.adicionar_conta(nova_conta)
+    contas.append(nova_conta)
     numero_conta_sequencial += 1
-    print(f"Conta {conta['numero_conta']} criada com sucesso para o usuário {usuario['nome']}!")
+    print(f"Conta {nova_conta.numero} criada com sucesso para o usuário {usuario.nome}!")
 
 def listar_contas():
     if not contas:
         print("Nenhuma conta cadastrada.")
         return
-    
     for conta in contas:
-        usuario = conta['usuario']
-        print(f"Agência: {conta['agencia']}, Número da Conta: {conta['numero_conta']}, Usuário: {usuario['nome']}")
-
-def saque(*, saldo, valor, extrato, limite, numero_saques, limite_saques):
-    if valor > saldo:
-        print("Erro: Saldo insuficiente.")
-    elif valor > limite:
-        print("Erro: O valor excede o limite diário de retirada.")
-    elif numero_saques >= limite_saques:
-        print("Erro: Você já atingiu o limite de saques diários.")
-    elif valor > 0:
-        saldo -= valor
-        timestamp = datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S')
-        extrato += f"[{timestamp}] Retirada: R$ {valor:.2f}\n"
-        numero_saques += 1
-        print(f"Saque de R$ {valor:.2f} realizado com sucesso!")
-    else:
-        print("Erro: Valor inválido.")
-
-    return saldo, extrato
-
-def deposito(saldo, valor, extrato):
-    if valor > 0:
-        saldo += valor
-        timestamp = datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S')
-        extrato += f"[{timestamp}] Depósito: R$ {valor:.2f}\n"
-        print(f"Depósito de R$ {valor:.2f} realizado com sucesso!")
-    else:
-        print("Erro: Valor inválido.")
-    
-    return saldo, extrato
-
-def extrato_conta(saldo, *, extrato):
-    print("\n========== EXTRATO ==========")
-    print("Nenhuma movimentação registrada." if not extrato else extrato)
-    print(f"Saldo atual: R$ {saldo:.2f}")
-    print("==============================")
-
-# Exemplo de uso
-fundos = 0
-historico = ""
-saques_realizados = 0
-limite_diario = 500
-limite_saques = 3
+        print(f"Agência: {conta.agencia}, Número da Conta: {conta.numero}, Usuário: {conta.usuario.nome}")
 
 while True:
     print("\n[1] Cadastrar Usuário")
@@ -122,18 +168,23 @@ while True:
             print("Nenhuma conta criada.")
             continue
         valor = float(input("Digite o valor do depósito: "))
-        fundos, historico = deposito(fundos, valor, historico)
+        conta = contas[0]
+        conta.depositar(valor)
 
     elif escolha == "4":
         if len(contas) == 0:
             print("Nenhuma conta criada.")
             continue
         valor = float(input("Digite o valor do saque: "))
-        fundos, historico = saque(saldo=fundos, valor=valor, extrato=historico, limite=limite_diario, numero_saques=saques_realizados, limite_saques=limite_saques)
-        saques_realizados += 1
+        conta = contas[0]
+        conta.sacar(valor)
 
     elif escolha == "5":
-        extrato_conta(fundos, extrato=historico)
+        if len(contas) == 0:
+            print("Nenhuma conta criada.")
+            continue
+        conta = contas[0]
+        conta.exibir_extrato()
 
     elif escolha == "6":
         listar_contas()
